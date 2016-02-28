@@ -1,0 +1,5 @@
+llvm:
+  build: ./llvm
+  stdin_open: true
+  volumes:
+    - ./assignment-2:/dtu
