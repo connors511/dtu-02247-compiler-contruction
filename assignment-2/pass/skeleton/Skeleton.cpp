@@ -63,25 +63,8 @@ namespace {
     SkeletonPass() : FunctionPass(ID) { }
 
     virtual bool runOnFunction(Function &F) {
-      // errs() << "I saw a function called " << F.getName() << "!\n";
 
-      // The naive way to iterate instructions in the function..
-      //
-      // for (Function::iterator blk = F.begin(), e = F.end(); blk != e; ++blk) {
-      //     // Print out the name of the basic block if it has one, and then the
-      //     // number of instructions that it contains
-      //     errs() << "Basic block (name=" << blk->getName() << ") has "
-      //                << blk->size() << " instructions.\n";
-
-      //     // blk is a pointer to a BasicBlock instance
-      //     for (BasicBlock::iterator i = blk->begin(), e = blk->end(); i != e; ++i) {
-      //        // The next statement works since operator<<(ostream&,...)
-      //        // is overloaded for Instruction&
-      //        errs() << *i << "\n";
-      //     }
-      // }
-
-      // F is a pointer to a Function instance
+      // For every instruction in the function
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
         DEBUG(errs() << "Current instruction:" << *I << "\n");
 
@@ -89,16 +72,18 @@ namespace {
         // This is the juicy part..
         BasicBlock::iterator it(*I);
 
+        // Check if the line has already been checked previously
         std::string cacheKey = getKey(it);
         if (cacheKey != "-1" && checkedCache[cacheKey]) {
           DEBUG(errs() << "Instruction has already been found to be possible error. Skipping" << "\n");
           continue;
         }
 
-        ++it; // After this line, it refers to the instruction after *inst
+        ++it; // After this line, it refers to the instruction after *I
 
         bool isFirst = true;
         bool hasError = false;
+
         // Lets check the rest of the program..
         while (it != I->getParent()->end()) {
           DEBUG(errs() << "Up next:" << *it << "\n");
