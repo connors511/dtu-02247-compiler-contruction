@@ -1,0 +1,123 @@
+%%% Template originaly created by Karol Kozioł (mail@karol-koziol.net) and modified for ShareLaTeX use
+
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\usepackage{tgtermes}
+
+\usepackage[
+pdftitle={02247 Compiler Construction},
+pdfauthor={Matthias Larsen, s103437},
+colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue,bookmarks=true,
+bookmarksopenlevel=2]{hyperref}
+\usepackage{amsmath,amssymb,amsthm,textcomp}
+\usepackage{enumerate}
+\usepackage{multicol}
+\usepackage{tikz}
+
+\usepackage{geometry}
+\geometry{total={210mm,297mm},
+left=25mm,right=25mm,%
+bindingoffset=0mm, top=20mm,bottom=20mm}
+
+
+\linespread{1.3}
+
+\newcommand{\linia}{\rule{\linewidth}{0.5pt}}
+
+% custom theorems if needed
+\newtheoremstyle{mytheor}
+    {1ex}{1ex}{\normalfont}{0pt}{\scshape}{.}{1ex}
+    {{\thmname{#1 }}{\thmnumber{#2}}{\thmnote{ (#3)}}}
+
+\theoremstyle{mytheor}
+\newtheorem{defi}{Definition}
+
+% my own titles
+\makeatletter
+\renewcommand{\maketitle}{
+\begin{center}
+\vspace{2ex}
+{\huge \textsc{\@title}}
+\vspace{1ex}
+\\
+\linia\\
+\@author \hfill \@date
+\vspace{4ex}
+\end{center}
+}
+\makeatother
+%%%
+
+% custom footers and headers
+\usepackage{fancyhdr,lastpage}
+\pagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+\lfoot{Assignment \textnumero{} 2}
+\cfoot{}
+\rfoot{Page \thepage\ /\ \pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+%
+
+%%%----------%%%----------%%%----------%%%----------%%%
+
+\begin{document}
+
+\title{02247 Compiler Construction}
+
+\author{Matthias Larsen, s103437}
+
+\date{02/03/2016}
+
+\maketitle
+
+\section*{Finding copy/paste lines}
+
+A useful detection of possible copy/paste error can require a lot of work, thus splitting it up into smaller parts and slowly build something usefull is a good idea.
+
+As a starting point, the initial idea is to check every line of the program against the rest of the program, to see if it is identical, similar or not at all.
+
+The LLVM framework provides two methods that can assist with this; isIdenticalTo and isSimilarTo. The first one checks if the instruction is 100\% identical, where as the latter checks if the method call is the same. The isSimilarTo part would then have to be checked further in order to see if its a possble error.
+It's also the method we have to use in order for us to check for if a method has been pasted wrongly and should be identical to another instruction.
+
+\section*{Implementation}
+
+My initial version of the detection infrastructure is implemented with as a FunctionPass and thus can not check across functions.
+It could be ported to a ModulePass to support this.
+
+As previously described, my implementation checks each line within a function against the rest of the function body and tests whether or two lines are identical, similar or not at all the same. If it's either of the two first possibilties, it's being output via err().
+
+Ive chosen to use a FunctionPass as I've based my initial implementation on the SkeletonPass and thought to start solve the problem at a function level before expanding to a whole file / project.
+
+\subsection*{Example file}
+\begin{verbatim}
+#include <stdio.h>
+int main( )
+{
+  printf("Hello World!\n");
+  printf("Hello World!\n");
+  if (1) {
+    printf("Hello World 2!\n");
+    printf("Hello World!\n");
+  }
+}
+\end{verbatim}
+
+\subsection*{Example output for that file}
+\begin{verbatim}
+Identical method found. Possbile copy/paste
+Original call: printf @ ../../test3.c:4, col 3
+  Possble paste error: printf @ ../../test3.c:5, col 3
+  Same operation found. Needs deeper check
+  Possble paste error: printf @ ../../test3.c:7, col 4
+  Possble paste error: printf @ ../../test3.c:8, col 4
+\end{verbatim}
+
+\end{document}
