@@ -1,0 +1,102 @@
+%%% Template originaly created by Karol Kozioł (mail@karol-koziol.net) and modified for ShareLaTeX use
+
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\usepackage{tgtermes}
+
+\usepackage[
+pdftitle={02247 Compiler Construction},
+pdfauthor={Matthias Larsen, s103437},
+colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue,bookmarks=true,
+bookmarksopenlevel=2]{hyperref}
+\usepackage{amsmath,amssymb,amsthm,textcomp}
+\usepackage{enumerate}
+\usepackage{multicol}
+\usepackage{tikz}
+
+\usepackage{geometry}
+\geometry{total={210mm,297mm},
+left=25mm,right=25mm,%
+bindingoffset=0mm, top=20mm,bottom=20mm}
+
+
+\linespread{1.3}
+
+\newcommand{\linia}{\rule{\linewidth}{0.5pt}}
+
+% custom theorems if needed
+\newtheoremstyle{mytheor}
+    {1ex}{1ex}{\normalfont}{0pt}{\scshape}{.}{1ex}
+    {{\thmname{#1 }}{\thmnumber{#2}}{\thmnote{ (#3)}}}
+
+\theoremstyle{mytheor}
+\newtheorem{defi}{Definition}
+
+% my own titles
+\makeatletter
+\renewcommand{\maketitle}{
+\begin{center}
+\vspace{2ex}
+{\huge \textsc{\@title}}
+\vspace{1ex}
+\\
+\linia\\
+\@author \hfill \@date
+\vspace{4ex}
+\end{center}
+}
+\makeatother
+%%%
+
+% custom footers and headers
+\usepackage{fancyhdr,lastpage}
+\pagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+\lfoot{Assignment \textnumero{} 3}
+\cfoot{}
+\rfoot{Page \thepage\ /\ \pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+%
+
+%%%----------%%%----------%%%----------%%%----------%%%
+
+\begin{document}
+
+\title{02247 Compiler Construction}
+
+\author{Matthias Larsen, s103437}
+
+\date{30/03/2016}
+
+\maketitle
+
+\section*{Assignment 3}
+% https://gist.github.com/omtcyf0/1a5cee7536a76268d5d2
+% https://groups.google.com/forum/#!msg/llvm-dev/uYtl-SsDGpI/YWYNLYjn07kJ
+
+I got an epiphany yesterday, for which I have not yet been able to meaningful implementation.
+Instead, I thought I'd describe my idea on how to solve the problem.
+
+Switching to a module pass would give me access to the full scope.
+I could then, for each new function call encountered, fetch similar calls (Module::getFunction() and then iterate through its uses).
+This would enable me to find single-line type 1 errors (Identical code fragments except for variations in whitespace, layout and comments, see \url{http://research.cs.queensu.ca/TechReports/Reports/2007-541.pdf} for the types of clones).
+
+Finding identical multi-line blocks by serializing / encoding parts of the code, for instance using graphs as such would be able to detect duplicate code by searching for sub graphs.
+By encoding the code as one or more graphs, one would also be able to find similar (by instructions, not method arguments) code blocks by searching for sub graphs that could be obtained by removing parts from the graph - type 3 errors (Copied fragments with further modifications such as changed, added or removed statements, in addition to variations in identifiers, literals, types, whitespace, layout and comments).
+
+Using the above method to only look at similar calls (Module::getFunction()), could be extended to find type 2 errors (Syntactically identical fragments except for variations in identifiers, literals, types, whitespace, layout and comments.) by analysing the call intstruction - i.e. CallInst->getArgOperand(0..n).
+
+Using the Module::getFunction approach to look for identical single-line, or searching for similar single-lines that might've been changed in error would greatly improve the running time for my implementation compared to my first version. This is because it no longer needs to compare every line against each other, but instead only compare identical instructions against each other.
+
+To keep track of what's already been analyzed, a simple list of instructions that have been processed can be kept.
+During so, would prevent re-analyzing an instruction when encountered later in the program, similar to my first version with a ``checkedCache" for processed lines.
+
+\end{document}
