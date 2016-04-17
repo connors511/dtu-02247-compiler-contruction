@@ -2,6 +2,8 @@
 
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Metadata.h"
 
 #include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
@@ -61,6 +63,24 @@ int edit_distance(const std::string& s1, const std::string& s2)
 
 int MAX_EDIT_DIST = 2;
 
+// Hamming distance
+// http://stackoverflow.com/a/557436
+int hammingDist(string const& s1, string const& s2)
+{
+    // hd stands for "Hamming Distance"
+    int dif = 0;
+
+    for (std::string::size_type i = 0; i < s1.size(); i++ )
+    {
+        char b1 = s1[i];
+        char b2 = s2[i];
+
+        dif += (b1 != b2)?1:0;
+    }  
+
+    return dif;
+}
+
 #define DEBUG_TYPE "copy_paste"
 
 // Useful shit
@@ -109,12 +129,54 @@ namespace {
       return location.getLine();
     }
 
+    // Get variable name
+    // http://stackoverflow.com/a/21488105
+    // With https://groups.google.com/forum/#!topic/llvm-dev/RRV2TjNQ8oA applied
+    const Function* findEnclosingFunc(const Value* V) {
+      if (const Argument* Arg = dyn_cast<Argument>(V)) {
+        return Arg->getParent();
+      }
+      if (const Instruction* I = dyn_cast<Instruction>(V)) {
+        return I->getParent()->getParent();
+      }
+      return NULL;
+    }
+
+    const DIVariable* findVar(const Value* V, const Function* F) {
+      for (const_inst_iterator Iter = inst_begin(F), End = inst_end(F); Iter != End; ++Iter) {
+        const Instruction* I = &*Iter;
+        if (const DbgDeclareInst* DbgDeclare = dyn_cast<DbgDeclareInst>(I)) {
+          if (DbgDeclare->getAddress() == V) return DbgDeclare->getVariable();
+        } else if (const DbgValueInst* DbgValue = dyn_cast<DbgValueInst>(I)) {
+          if (DbgValue->getValue() == V) return DbgValue->getVariable();
+        }
+      }
+      return NULL;
+    }
+
+    StringRef getOriginalName(const Value* V) {
+      // TODO handle globals as well
+
+      const Function* F = findEnclosingFunc(V);
+      if (!F) return V->getName();
+
+      const DIVariable* Var = findVar(V, F);
+      if (!Var) return "tmp";
+
+      return Var->getName();
+    }
+
   public:
     static char ID;
     SkeletonPass() : FunctionPass(ID) { }
 
     virtual bool runOnFunction(Function &F) {
-
+      /**************
+       *
+       * WE REQUIRE TO RUN WITH DEBUG (-g flag)
+       * $ clang -Xclang -load -Xclang skeleton/libSkeletonPass.* FILE -g
+       *
+       **/
       std::unordered_set<std::string> visited;
 
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
@@ -123,7 +185,7 @@ namespace {
 
         if (visited.count(funcName.str()) > 0) {
           // We already evaluated this function name
-          // errs() << "Skipping\n";
+          // errs() << "Skipping " << funcName << " on " << getFunctionLine(I) <<" \n";
           continue;
         }
 
@@ -170,9 +232,14 @@ namespace {
                 int numOperInst = CSInst.arg_size();
                 // errs() << "Arguments for Inst: " << numOperInst << "\n";
 
+                // If Inst is @llvm.dbg.declare:
+                // - The first argument is metadata holding the alloca for the variable. 
+                // - The second argument is a local variable containing a description of the variable. http://llvm.org/docs/LangRef.html#dilocalvariable
+                // - The third argument is a complex expression. http://llvm.org/docs/LangRef.html#diexpression
+
                 if (numOperI == numOperInst) {
                   for (int i = 0; i < numOperInst; ++i) {
-                    errs() << "TYPE: " << I->getOperand(i)->getType()->getTypeID() << "\n";
+                    // errs() << "TYPE: " << I->getOperand(i)->getType()->getTypeID() << "\n";
 
                     if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::ArrayTyID) {
                       // Start "Array" (String) analysis
@@ -244,10 +311,47 @@ namespace {
                         errs() << "Is this intended?";
                       }
                     } // End "Array" (Strings) analysis
-                    else if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::ArrayTyID) {
+                    else if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::MetadataTyID) {
                       // Start "Metadata" (Delclaration?) analysis
 
+                      // errs() << "Line: " << curLine << "\n";
+                      // const Value * V = &*I->getOperand(i);
+                      // errs() << "V: " << (*V) << "\n";
+                      // // DILocalVariable DILV = *V;
+                      // errs() << "V raw: " << (V) << "\n";
+                      // errs() << "NAME: " << getOriginalName(V).data() << "\n";
+
                     } // End "Metadata" (Delclaration?) analysis
+                    else if (I->getOperand(i)->getType()->getTypeID() == 10) { // Type::TypeID::TokenTyID) {
+                      // Start "Token" (Variables in method calls?) analysis
+
+                      // NOTE: This part doesnt work..
+                      // Each argument seems to have its own address...
+                      CallInst* ciI = dyn_cast<CallInst>(&*I);
+                      CallInst* ciInst = dyn_cast<CallInst>(&*Inst);
+                      if (ciI == ciInst) {
+                        errs() << "ON LINE " << curLine << ", operand " << i << " IS EQUAL\n";
+                      } else {
+                        errs() << I->getOperand(i) << " : " << *I->getOperand(i) << "\n";
+                        errs() << Inst->getOperand(i) << " : " << *Inst->getOperand(i) << "\n";
+                        errs() << *ciI << "\n";
+                        errs() << *ciInst << "\n";
+                        errs() << "ON LINE " << curLine << ", operand " << i << " IS NOT EQUAL\n";
+                      }
+
+                      // Compute the difference in argument names
+                      // We might need to both consider single arguments; "add(a, b)"
+                      // And complex types; "add(a*a, b)"
+                      int argDiff = 0;
+                      if (argDiff == 0) {
+                        // Identical call args
+                      } else if (argDiff == 1) {
+                        // Did you mean to?
+                      } else {
+                        // We're guessing this is intended
+                      }
+
+                    } // End "Token" (Variables in method calls?) analysis
 
                   }
 
@@ -259,14 +363,7 @@ namespace {
               }
             }
           }
-
-          // for (Value::use_iterator i = f->use_begin(), e = f->use_end(); i != e; ++i) {
-          //   errs() << "  " << *i << "\n";
-          //   if (Instruction *Inst = dyn_cast<Instruction>(*i)) {
-          //     errs() << "f is used in instruction:\n";
-          //     errs() << *Inst << "\n";
-          //   }
-          // }
+          
         } else {
           // A direct call..
           // i.e. right hand side of: int b = 2+4;
