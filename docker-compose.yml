@@ -2,4 +2,4 @@ llvm:
   build: ./llvm
   stdin_open: true
   volumes:
-    - ./assignment-3:/dtu
+    - ./assignment-4:/dtu
