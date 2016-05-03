@@ -65,7 +65,7 @@ int MAX_EDIT_DIST = 2;
 
 // Hamming distance
 // http://stackoverflow.com/a/557436
-int hammingDist(string const& s1, string const& s2)
+int hammingDist(std::string const& s1, std::string const& s2)
 {
     // hd stands for "Hamming Distance"
     int dif = 0;
@@ -166,17 +166,75 @@ namespace {
       return Var->getName();
     }
 
+    StringRef getVariableName(Value * V) {
+      LoadInst *LI = cast<LoadInst>(V);
+      Value *VaI = LI->getPointerOperand();
+      return VaI->getName();
+    }
+
+    StringRef getVariableName(Instruction * I) {
+      return getVariableName(I, 0);
+    }
+
+    StringRef getVariableName(Instruction * I, int operand) {
+      return getVariableName(I->getOperand(operand));
+    }
+
+    Value * getVariableAddress(Instruction * I) {
+      LoadInst *LI = cast<LoadInst>(I->getOperand(0));
+      Value *VaI = LI->getPointerOperand();
+      return VaI;
+    }
+
+    // std::string _processExpression(store) {
+    //   std::string sequence;
+    //   return _visit(sequence, store.value);
+    // }
+
+    // std::string _visit(std::string &sequence, Instruction * I) {
+    //   if (isa<LoadInst>(I)) {
+    //     sequence += getVariableName(I);
+    //   } else if (value is binaryop) {
+    //     // sequence.add(openingParen)
+    //     _visit(sequence, binaryop.operand(0))
+    //     sequence += I.getOpcode();
+    //     _visit(sequence, binaryop.operand(1))
+    //     // sequence.add(closingParen);
+    //   }
+    //   return sequence;
+    // }
+
+    std::string instructionToText(Instruction * I) {
+      if (isa<LoadInst>(I)) {
+        return getVariableName(I);
+      }
+      std::string str;
+      raw_string_ostream rso(str);
+      I->print(rso);
+      return str;
+    }
+
+    std::string valueToText(Value * V) {
+      if (isa<LoadInst>(V)) {
+        return getVariableName(V);
+      }
+      std::string str;
+      raw_string_ostream rso(str);
+      V->print(rso);
+      return str;
+    }
+
   public:
     static char ID;
     SkeletonPass() : FunctionPass(ID) { }
 
     virtual bool runOnFunction(Function &F) {
-      /**************
-       *
-       * WE REQUIRE TO RUN WITH DEBUG (-g flag)
-       * $ clang -Xclang -load -Xclang skeleton/libSkeletonPass.* FILE -g
-       *
-       **/
+      /********************************************************************\
+       *                                                                  *
+       * WE REQUIRE TO RUN WITH DEBUG (-g flag)                           *
+       * $ clang -Xclang -load -Xclang skeleton/libSkeletonPass.* FILE -g *
+       *                                                                  *
+      \********************************************************************/
       std::unordered_set<std::string> visited;
 
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
@@ -192,7 +250,7 @@ namespace {
         visited.insert(funcName.str());
 
         int funcLine = getFunctionLine(I);
-        errs() << "Method: " << funcName << " on line " << funcLine << "\n";
+        // errs() << "Method: " << funcName << " on line " << funcLine << "\n";
  
         // If its not a direct call
         // A delcaration triggers this as well
@@ -200,7 +258,11 @@ namespace {
           Module * m = F.getParent();
           Function * f = m->getFunction(funcName);
 
-          errs() << "Function f: " << f << "\n";
+          // errs() << "Function f: " << f << "\n";
+
+          int sameArgsCount = 0;
+          int diffArgsCount = 0;
+          std::string errMsg;
 
           // Get all the uses of this method call (including this one)
           for (User *U : f->users()) {
@@ -212,12 +274,14 @@ namespace {
               }
 
               if (I->isIdenticalTo(Inst)) {
-                errs() << "Identical call on line " << curLine << "\n";
+                // errs() << "Identical call on line " << curLine << "\n";
+                errs() << "Identical statements (";
+                errs() << funcName.str();
+                errs() << ") found on lines " << funcLine << " and " << curLine << ". Did you mean to?\n";
               } else {
                 
                 // Inspect arguments
-                errs() << "Same call: " << curLine << "\n";
-                errs() << *Inst << "\n";
+                // errs() << "Same call: " << curLine << "\n";
 
                 // http://stackoverflow.com/questions/12127137/how-to-get-the-value-of-a-string-literal-in-llvm-ir
                 CallSite CSI(cast<Value>(&*I));
@@ -244,7 +308,6 @@ namespace {
                     if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::ArrayTyID) {
                       // Start "Array" (String) analysis
 
-                      // Trim for newlines, as its very common in C / C++
                       std::string argI = cast<ConstantDataArray>(
                         cast<GlobalVariable>(
                           cast<ConstantExpr>(
@@ -252,6 +315,7 @@ namespace {
                           )->getOperand(0)
                         )->getInitializer()
                       )->getAsCString();
+                      // Trim for newlines, as its very common in C / C++
                       argI = trim(argI);
 
                       std::string argInst = cast<ConstantDataArray>(
@@ -263,53 +327,59 @@ namespace {
                       )->getAsCString();
                       argInst = trim(argInst);
 
-                      errs() << argI << " vs " << argInst << "\n";
+                      // errs() << argI << " vs " << argInst << "\n";
                       int dist = edit_distance(argI, argInst);
-                      errs() << "Levenshtein: " << dist << "\n";
+                      // errs() << "Levenshtein: " << dist << "\n";
                       int pos;
                       if (argI == argInst) {
                         // Why isnt this identical? A second argument is different?
-                        errs() << "Identical\n";
-                      } else if (argI.find(argInst) != std::string::npos) {
-                        // argInst is a substring of argI
-                        // i.e. something was removed
-                        errs() << "#00'" << argInst << "' is a substring of '" << argI << "'.\n";
-                        pos = argI.find(argInst);
-                        if (pos == 0) {
-                          errs() << "#1 Did you intend to remove '" << argI.substr(argInst.length(), std::string::npos) << "' from the end?\n";
-                        } else {
-                          if (argInst.length() + pos == argI.length()) {
-                            // Only added something in front
-                            errs() << "#2 Did you intend to add '" << argI.substr(0, pos) << "' in the begining?\n";
+                        sameArgsCount++;
+                        // errs() << "Identical\n";
+                      } else {
+                        // Deeper analysis
+                        diffArgsCount++;
+
+                        if (argI.find(argInst) != std::string::npos) {
+                          // argInst is a substring of argI
+                          // i.e. something was removed
+                          errs() << "#00'" << argInst << "' is a substring of '" << argI << "'.\n";
+                          pos = argI.find(argInst);
+                          if (pos == 0) {
+                            errs() << "#1 Did you intend to remove '" << argI.substr(argInst.length(), std::string::npos) << "' from the end?\n";
                           } else {
-                            errs() << "#3 Did you intend to add '" << argI.substr(0, pos) << "' in the begining and '";
-                            errs() << argI.substr(pos + argInst.length(), std::string::npos) << "' in the end?\n";
+                            if (argInst.length() + pos == argI.length()) {
+                              // Only added something in front
+                              errs() << "#2 Did you intend to add '" << argI.substr(0, pos) << "' in the begining?\n";
+                            } else {
+                              errs() << "#3 Did you intend to add '" << argI.substr(0, pos) << "' in the begining and '";
+                              errs() << argI.substr(pos + argInst.length(), std::string::npos) << "' in the end?\n";
+                            }
                           }
-                        }
-                      } else if (argInst.find(argI) != std::string::npos) {
-                        // And the other way around
-                        // i.e. something was added
-                        errs() << "#01'" << argI << "' is a substring of '" << argInst << "'.\n";
-                        pos = argInst.find(argI);
-                        if (pos == 0) {
-                          errs() << "#4 Did you intend to remove '" << argInst.substr(argI.length(), std::string::npos) << "' from the end?\n";
-                        } else {
-                          if (argI.length() + pos == argInst.length()) {
-                            // Only added something in front
-                            errs() << "#5 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining?\n";
+                        } else if (argInst.find(argI) != std::string::npos) {
+                          // And the other way around
+                          // i.e. something was added
+                          errs() << "#01'" << argI << "' is a substring of '" << argInst << "'.\n";
+                          pos = argInst.find(argI);
+                          if (pos == 0) {
+                            errs() << "#4 Did you intend to remove '" << argInst.substr(argI.length(), std::string::npos) << "' from the end?\n";
                           } else {
-                            errs() << "#6 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining and '";
-                            errs() << argInst.substr(pos + argI.length(), std::string::npos) << "' in the end?\n";
+                            if (argI.length() + pos == argInst.length()) {
+                              // Only added something in front
+                              errs() << "#5 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining?\n";
+                            } else {
+                              errs() << "#6 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining and '";
+                              errs() << argInst.substr(pos + argI.length(), std::string::npos) << "' in the end?\n";
+                            }
                           }
+                        } else if (dist < MAX_EDIT_DIST) {
+                          // Levenstein distance
+                          errs() << "Levenshtein distance of " << dist << " between:\n";
+                          errs() << "   '" << argI << "'\n";
+                          errs() << "  and\n";
+                          errs() << "   '" << argInst << "'\n";
+                          errs() << "Is this intended?";
                         }
-                      } else if (dist < MAX_EDIT_DIST) {
-                        // Levenstein distance
-                        errs() << "Levenshtein distance of " << dist << " between:\n";
-                        errs() << "   '" << argI << "'\n";
-                        errs() << "  and\n";
-                        errs() << "   '" << argInst << "'\n";
-                        errs() << "Is this intended?";
-                      }
+                      } 
                     } // End "Array" (Strings) analysis
                     else if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::MetadataTyID) {
                       // Start "Metadata" (Delclaration?) analysis
@@ -325,52 +395,95 @@ namespace {
                     else if (I->getOperand(i)->getType()->getTypeID() == 10) { // Type::TypeID::TokenTyID) {
                       // Start "Token" (Variables in method calls?) analysis
 
-                      // NOTE: This part doesnt work..
-                      // Each argument seems to have its own address...
                       CallInst* ciI = dyn_cast<CallInst>(&*I);
                       CallInst* ciInst = dyn_cast<CallInst>(&*Inst);
-                      if (ciI == ciInst) {
-                        errs() << "ON LINE " << curLine << ", operand " << i << " IS EQUAL\n";
-                      } else {
-                        errs() << I->getOperand(i) << " : " << *I->getOperand(i) << "\n";
-                        errs() << Inst->getOperand(i) << " : " << *Inst->getOperand(i) << "\n";
-                        errs() << *ciI << "\n";
-                        errs() << *ciInst << "\n";
-                        errs() << "ON LINE " << curLine << ", operand " << i << " IS NOT EQUAL\n";
-                      }
+                      ConstantInt* CI = dyn_cast<llvm::ConstantInt>(&*I->getOperand(i));
 
-                      // Compute the difference in argument names
-                      // We might need to both consider single arguments; "add(a, b)"
-                      // And complex types; "add(a*a, b)"
-                      int argDiff = 0;
-                      if (argDiff == 0) {
-                        // Identical call args
-                      } else if (argDiff == 1) {
-                        // Did you mean to?
+                      if (isa<LoadInst>(&*I->getOperand(i)) && isa<LoadInst>(Inst->getOperand(i)) 
+                            && getVariableName(&*I, i) == getVariableName(Inst, i)) {
+                        // Both arguments are simple literals
+                        sameArgsCount++;
+                        // errs() << "ON LINE " << curLine << ", operand " << i << " IS EQUAL\n";
+                      } else if (ConstantInt* CInst = dyn_cast<llvm::ConstantInt>(Inst->getOperand(i))) {
+                        if (CI && CInst->getSExtValue() == CI->getSExtValue()) {
+                          // Same args
+                          sameArgsCount++;
+                        } else if (CI && CInst->getSExtValue() != CI->getSExtValue()) {
+                          errMsg += "On line " + std::to_string(curLine) + " argument #" + std::to_string(i+1) + " differs ";
+                          errMsg += "from first sight on line " + std::to_string(funcLine) + ":\n";
+                          errMsg += "   " + std::to_string(CInst->getSExtValue()) + " (" + std::to_string(CInst->getBitWidth()) + "bit int)\n";
+                          errMsg += " instead of\n";
+                          errMsg += "   " + std::to_string(CI->getSExtValue())  + " (" + std::to_string(CI->getBitWidth()) + "bit int)\n";
+                          errMsg += " Is this intended?\n";
+                        } else {
+                          errMsg += "On line " + std::to_string(curLine) + " argument #" + std::to_string(i+1) + " differs ";
+                          errMsg += "from first sight on line " + std::to_string(funcLine) + ":\n";
+                          errMsg += "   " + std::to_string(CInst->getSExtValue()) + " (" + std::to_string(CInst->getBitWidth()) + "bit int)\n";
+                          errMsg += " instead of\n";
+                          if (CI) {
+                            errMsg += "   " + std::to_string(CI->getSExtValue())  + " (" + std::to_string(CI->getBitWidth()) + "bit int)\n";
+                          } else {
+                            errMsg += "   " + valueToText(I->getOperand(i)) + "\n";
+                          }
+                          errMsg += " Is this intended?\n";
+                        }
                       } else {
-                        // We're guessing this is intended
-                      }
+                        // TODO: Handle complex expressions.. a*a or a+b for example.
 
+                        errMsg += "On line " + std::to_string(curLine) + " argument #" + std::to_string(i+1) + " differs ";
+                        errMsg += "from first sight on line " + std::to_string(funcLine) + ":\n";
+                        errMsg += "   " + valueToText(Inst->getOperand(i)) + "\n";
+                        errMsg += " instead of\n";
+                        if (CI) {
+                          errMsg += "   " + std::to_string(CI->getSExtValue())  + " (" + std::to_string(CI->getBitWidth()) + "bit int)\n";
+                        } else {
+                          errMsg += "   " + valueToText(I->getOperand(i)) + "\n";
+                        }
+                        errMsg += " Is this intended?\n";
+
+                        // errs() << I->getOperand(i) << " : " << *I->getOperand(i) << "\n";
+                        // errs() << Inst->getOperand(i) << " : " << *Inst->getOperand(i) << "\n";
+                        // errs() << *ciI << "\n";
+                        // errs() << *ciInst << "\n";
+                        // errs() << "ON LINE " << curLine << ", operand " << i << " IS NOT EQUAL\n";
+                        
+                        // errs() << "TEXT: " << instructionToText(Inst) << "\n";
+                      }
                     } // End "Token" (Variables in method calls?) analysis
-
                   }
-
                 } else {
                   // Check for mistakes in numOper?
+                }
+
+                // Compute the difference in argument names
+                // We might need to both consider single arguments; "add(a, b)"
+                // And complex types; "add(a*a, b)"
+                errs() << errMsg;
+                if (diffArgsCount == 0 && sameArgsCount == numOperI) {
+                  // Identical call args
+                  errs() << "Identical statements (";
+                  errs() << funcName.str();
+                  errs() << ") found on lines " << funcLine << " and " << curLine << ". Did you mean to?\n";
+                } else if (diffArgsCount == 1 && numOperI > 2) {
+                  // Did you mean to?
+                  // You might've miss spelled it..
+                  // errs() << "ALMOST" << "\n";
+                } else if (sameArgsCount == 1 && numOperI > 2) {
+                  // We should reverse the error message.
+                  // You probably forgot to change the last argument
+                  // errs() << "REVERSE ERR\n";
+                } else {
+                  // We're guessing this is intended
                 }
                 
                 // Inst->isSameOperationAs.. for a*a?
               }
             }
           }
-          
         } else {
           // A direct call..
           // i.e. right hand side of: int b = 2+4;
         }
-        // f.begin() -> f.end() to loop over BasicBlocks (usage of method?)
-        // Debug print: errs() << getKey(it) << "\n";
-        // Use CallInst->getArgOperand(0..n) to compare args
       }
 
       return false;
