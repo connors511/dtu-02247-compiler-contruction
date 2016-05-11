@@ -1,0 +1,209 @@
+%%% Template originaly created by Karol Kozioł (mail@karol-koziol.net) and modified for ShareLaTeX use
+
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{xcolor}
+
+\usepackage{tgtermes}
+
+\usepackage[
+pdftitle={02247 Compiler Construction},
+pdfauthor={Matthias Larsen, s103437},
+colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue,bookmarks=true,
+bookmarksopenlevel=2]{hyperref}
+\usepackage{amsmath,amssymb,amsthm,textcomp}
+\usepackage{enumerate}
+\usepackage{multicol}
+\usepackage{tikz}
+
+\usepackage{geometry}
+\geometry{total={210mm,297mm},
+left=25mm,right=25mm,%
+bindingoffset=0mm, top=20mm,bottom=20mm}
+
+
+\linespread{1.3}
+
+\newcommand{\linia}{\rule{\linewidth}{0.5pt}}
+
+% custom theorems if needed
+\newtheoremstyle{mytheor}
+    {1ex}{1ex}{\normalfont}{0pt}{\scshape}{.}{1ex}
+    {{\thmname{#1 }}{\thmnumber{#2}}{\thmnote{ (#3)}}}
+
+\theoremstyle{mytheor}
+\newtheorem{defi}{Definition}
+
+% my own titles
+\makeatletter
+\renewcommand{\maketitle}{
+\begin{center}
+\vspace{2ex}
+{\huge \textsc{\@title}}
+\vspace{1ex}
+\\
+\linia\\
+\@author \hfill \@date
+\vspace{4ex}
+\end{center}
+}
+\makeatother
+%%%
+
+% custom footers and headers
+\usepackage{fancyhdr,lastpage}
+\pagestyle{fancy}
+\lhead{}
+\chead{}
+\rhead{}
+\lfoot{Assignment \textnumero{} 3}
+\cfoot{}
+\rfoot{Page \thepage\ /\ \pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+%
+
+%%%----------%%%----------%%%----------%%%----------%%%
+
+\begin{document}
+
+\title{02247 Compiler Construction}
+
+\author{Matthias Larsen, s103437}
+
+\date{27/04/2016}
+
+\maketitle
+
+
+% Notes from Probst:
+% * Main topic: copy/paste detection
+% * * Describe what you implemented, what worked, what did not
+% * * Describe how your compiler interacts with the intermediate representation
+% * * Describe how you actually identify duplicates or likely duplicates
+% * * DO NOT INCLUDE THE COMPLETE SOURCE CODE IN THE REPORT
+% ​* * * Use snippets to show interesting parts!
+% * * * Upload source code archive with the report
+% * Equally important
+% * * Structure of the copy/paste detector
+% * * Integration with LLVM
+% * * What did you learn in the project?
+
+
+% Notes from TA:
+% For the final report I would strongly suggest that you work on improving the report:
+
+% - Make sure you describe in a lot more detail how the pass work:
+% What are you trying to detect?
+% How to you achive this?
+% Break down the pass into the smaller steps that are performed to detect the duplication.
+
+% The flow of the program is a little unintuitive, but actually a clever use of the LLVM API: use the function class to get all the call sites and then compare those directly.
+% This is a fine approach, but make sure you describe how it works in the report.
+% - Show examples (it's fine to show both the c source code and the IR you are working on) and describe what the program is using from that information in order to detect duplicates.
+
+% - The future work section should be linked to the description of the pass:
+% what would you want to change/improve? how and why?
+
+% In short: you have a rudimentary pass that appear to be working - keep that and focus all your energy in the project on writing a good report and documenting what you actually achieved with the project.
+% Don't sell you efforts short by only writing 8 lines about what you built :-) /Rasmus
+
+
+\section*{Introduction}
+
+\section*{Implementation}
+
+\subsection*{First attempt}
+My first attempt at a parser was very crude.
+I started with a naive approach as a FunctionPass, thus limiting the scope of the copy/paste detection to a single method at a time.
+
+As a starting point, the initial idea is to check every line of the program against the rest of the program, to see if it is identical, similar or not at all.
+
+The LLVM framework provides two methods that can assist with this; isIdenticalTo and isSimilarTo.
+The first one checks if the instruction is 100\% identical, where as the latter checks if the method call is the same.
+
+The isSimilarTo part would then have to be checked further in order to see if its a possble error.
+
+It's also the method we have to use in order for us to check for if a method has been pasted wrongly and should be identical to another instruction.
+
+I chose to use a FunctionPass as I based my initial implementation on the SkeletonPass and thought to start solve the problem at a function level before expanding to a whole file / project.
+
+This version of the pass could take the following code as input
+\begin{verbatim}
+#include <stdio.h>
+int main( )
+{
+  printf("Hello World!\n");
+  printf("Hello World!\n");
+  if (1) {
+    printf("Hello World 2!\n");
+    printf("Hello World!\n");
+  }
+}
+\end{verbatim}
+
+and would produce the folling warnings
+\begin{verbatim}
+Identical method found. Possbile copy/paste
+Original call: printf @ ../../test3.c:4, col 3
+  Possble paste error: printf @ ../../test3.c:5, col 3
+  Same operation found. Needs deeper check
+  Possble paste error: printf @ ../../test3.c:7, col 4
+  Possble paste error: printf @ ../../test3.c:8, col 4
+\end{verbatim}
+
+\subsection*{Second attempt}
+I realised that my first attempt was very naive and would result in extremely long running times if the code was big enough.
+After reading a bit about the LLVM API, I found that by exploiting some of the LLVM methods I could increase the effeciency of the Pass by somewhat comprising the flow, making it a bit more unintuitive.
+
+\subsubsection*{Finding possible duplicates}
+Instead of checking one line against the rest of the lines in the function (in case of FunctionPass), I found that I could use the function class to get all the call sites and compare those with each other instead, thus drastically reducing the time complexity of the Pass.
+
+
+
+\subsubsection*{Comparing instructions}
+
+
+
+\section*{Future work}
+I had a few difficulties getting the variable name from a load instruction such that I could compare function arguments in `add(a, a)' vs `add(a, b)'. This section is my thoughts on how I'd extend the pass, had I time.
+
+\subsection*{Improving detection}
+Handling arithmic expressions (such as a+b and a*a) could be solved by creating a method that could take a Value as input and convert it to a string representation -- this would make it easier to handle complex cases than the current code.
+That is, to convert `%5 = add nsw i32 %3, %4, !dbg !22` to `a+a` so that the program could make a string comparison for literals.
+Doing so would allow checking complex arguments with nested arithmic operations as well.
+
+Pseudo code:
+
+\begin{verbatim}
+processExpression(value):
+  sequence <- initialize
+  visit(sequence, value)
+  generateSprintfCallFromSequence(sequence)
+
+visit(sequence, value):
+  if value is load:
+    sequence.add(load.pointer)
+  else if value is binaryop:
+    sequence.add(openingParen)
+    visit(sequence, binaryop.operand(0))
+    sequence.add(binaryop.opcode)
+    visit(sequence, binaryop.operand(1))
+    sequence.add(closingParen)
+\end{verbatim}
+
+Adding the opening and closing paranthesis would be needed to distinguish `(b+c-d)*e` from `b+(c-d)*e`.
+
+\subsection*{Detecting blocks}
+Detecting blocks can be done in two ways.
+The first is to introduce some ``lookahead'' functionality to the current pass. That is, to increment both pointers (I and Inst) as long as they're the same and then trigger a message when encountering a line that is just similar or way off.
+
+The other way is to encode or serialize parts of the code as a graph and compare graphs to find blocks of duplicate code even though graph isomorphism is a hard problem.
+
+
+\section*{Conclusion}
+
+\end{document}
