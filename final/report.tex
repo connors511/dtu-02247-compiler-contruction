@@ -6,6 +6,28 @@
 \usepackage[utf8]{inputenc}
 \usepackage{graphicx}
 \usepackage{xcolor}
+\usepackage{listings}
+\lstset{ %
+  backgroundcolor=\color{white},   % choose the background color; you must add \usepackage{color} or \usepackage{xcolor}
+  basicstyle=\footnotesize,        % the size of the fonts that are used for the code
+  breakatwhitespace=false,         % sets if automatic breaks should only happen at whitespace
+  breaklines=true,                 % sets automatic line breaking
+  captionpos=b,                    % sets the caption-position to bottom
+  extendedchars=true,              % lets you use non-ASCII characters; for 8-bits encodings only, does not work with UTF-8
+  frame=single,                    % adds a frame around the code
+  keepspaces=true,                 % keeps spaces in text, useful for keeping indentation of code (possibly needs columns=flexible)
+  language=C++,                 % the language of the code
+  numbers=left,                    % where to put the line-numbers; possible values are (none, left, right)
+  numbersep=5pt,                   % how far the line-numbers are from the code
+  rulecolor=\color{black},         % if not set, the frame-color may be changed on line-breaks within not-black text (e.g. comments (green here))
+  showspaces=false,                % show spaces everywhere adding particular underscores; it overrides 'showstringspaces'
+  showstringspaces=false,          % underline spaces within strings only
+  showtabs=false,                  % show tabs within strings adding particular underscores
+  tabsize=2,                     % sets default tabsize to 2 spaces
+  xleftmargin=\parindent,
+  xrightmargin=\parindent,
+  title=\lstname                   % show the filename of files included with \lstinputlisting; also try caption instead of title
+}
 
 \usepackage{tgtermes}
 
@@ -59,7 +81,7 @@ bindingoffset=0mm, top=20mm,bottom=20mm}
 \lhead{}
 \chead{}
 \rhead{}
-\lfoot{Assignment \textnumero{} 3}
+\lfoot{}
 \cfoot{}
 \rfoot{Page \thepage\ /\ \pageref*{LastPage}}
 \renewcommand{\headrulewidth}{0pt}
@@ -105,80 +127,298 @@ bindingoffset=0mm, top=20mm,bottom=20mm}
 % This is a fine approach, but make sure you describe how it works in the report.
 % - Show examples (it's fine to show both the c source code and the IR you are working on) and describe what the program is using from that information in order to detect duplicates.
 
-% - The future work section should be linked to the description of the pass:
-% what would you want to change/improve? how and why?
 
-% In short: you have a rudimentary pass that appear to be working - keep that and focus all your energy in the project on writing a good report and documenting what you actually achieved with the project.
-% Don't sell you efforts short by only writing 8 lines about what you built :-) /Rasmus
 
 
 \section*{Introduction}
+% something about compilers.. they compile
+A compiler is a computer program (or a set of programs) that transforms source code written in a programming language (the source language) into another computer language (the target language), with the latter often having a binary form known as object code. The most common reason for converting source code is to create an executable program.\footnote{\url{https://en.wikipedia.org/wiki/Compiler}}
+
+% copy paste copy paste.. its bad..
+Copy and pasting happens a lot of the world of computer programming.
+The reason for copy and pasting varies greatly and can be anything from inexperienced programmers not knowing how to solve a given task to the programmer simply being lazy.
+
+% you could miss a variable rename?
+The act of copy and pasting also comes with a very high risk of side effects. Bugs can easily be introduced by assumptions and design decisions made in the original source that no longer applies in the new place.
+Such code can result in immediate and visible errors from i.e. undefined variables, but may also be subtle bugs due to variables meaning something different in the new context.
+
+% or use the wrong contet entirely..
+
+LLVM, originally ``Low Level Virtual Machine", is a compiler infrastructure with a set of reusable libraries, well defined interfaces and easily extensible.
+LLVM uses multiple levels of ``intermediate representation" (IR) as it goes through it's passes, analyzing and optimizing, to end up in the target language.
+
+This paper describes the experience of extending LLVM with a pass to detect possible copy and paste errors in a program.
 
 \section*{Implementation}
+The goal of the pass is to detect copy-paste statements or blocks and to warn the user of potential problems in a program.
+The project started with a naive approach to gain knowledge of LLVM and its API.
+Following that, the entire pass was rewritten from scratch exploiting more of the LLVM API to faster and better find call sites and duplicates. The following sections describes what was implemented in which iteration, what did not work and what was changed.
 
 \subsection*{First attempt}
-My first attempt at a parser was very crude.
-I started with a naive approach as a FunctionPass, thus limiting the scope of the copy/paste detection to a single method at a time.
+The first attempt at a parser was very crude.
+It started with a naive approach as a FunctionPass, thus limiting the scope of the copy/paste detection to a single method at a time.
 
-As a starting point, the initial idea is to check every line of the program against the rest of the program, to see if it is identical, similar or not at all.
+As a starting point, the initial idea was to check every line of the program against the rest of the program, to see if it is identical, similar or not at all.
 
-The LLVM framework provides two methods that can assist with this; isIdenticalTo and isSimilarTo.
+The LLVM framework provides two methods that can assist with this; \verb!isIdenticalTo! and \verb!isSimilarTo!.
 The first one checks if the instruction is 100\% identical, where as the latter checks if the method call is the same.
-
-The isSimilarTo part would then have to be checked further in order to see if its a possble error.
-
+The \verb!isSimilarTo! part would then have to be checked further in order to see if its a possble error.
 It's also the method we have to use in order for us to check for if a method has been pasted wrongly and should be identical to another instruction.
 
-I chose to use a FunctionPass as I based my initial implementation on the SkeletonPass and thought to start solve the problem at a function level before expanding to a whole file / project.
-
-This version of the pass could take the following code as input
-\begin{verbatim}
+A FunctionPass was chosen for the initial implementation as it was based on the SkeletonPass with the idea to start solve the problem at a function level before expanding to a whole file / project.
+This version of the pass could take the program shown in listing \ref{lst:test1.c} as input and produce the output shown in listing \ref{lst:test1Out}.
+\begin{lstlisting}[caption={test1.c},label={lst:test1.c}]
 #include <stdio.h>
 int main( )
 {
   printf("Hello World!\n");
   printf("Hello World!\n");
   if (1) {
-    printf("Hello World 2!\n");
+    printf("Hello World!!\n");
     printf("Hello World!\n");
   }
 }
-\end{verbatim}
+\end{lstlisting}
 
-and would produce the folling warnings
-\begin{verbatim}
+\begin{lstlisting}[caption={Pass output for test1.c},label={lst:test1Out}]
 Identical method found. Possbile copy/paste
 Original call: printf @ ../../test3.c:4, col 3
   Possble paste error: printf @ ../../test3.c:5, col 3
   Same operation found. Needs deeper check
   Possble paste error: printf @ ../../test3.c:7, col 4
   Possble paste error: printf @ ../../test3.c:8, col 4
-\end{verbatim}
+\end{lstlisting}
 
 \subsection*{Second attempt}
-I realised that my first attempt was very naive and would result in extremely long running times if the code was big enough.
-After reading a bit about the LLVM API, I found that by exploiting some of the LLVM methods I could increase the effeciency of the Pass by somewhat comprising the flow, making it a bit more unintuitive.
+I realised that my first attempt was very naive and would result in extremely long running times if the program was big enough.
+After reading a bit about the LLVM API, I found that by exploiting some of the LLVM methods I could increase the effeciency of the pass by somewhat comprising the flow, making it a bit more unintuitive.
 
-\subsubsection*{Finding possible duplicates}
-Instead of checking one line against the rest of the lines in the function (in case of FunctionPass), I found that I could use the function class to get all the call sites and compare those with each other instead, thus drastically reducing the time complexity of the Pass.
+\subsubsection*{Finding possible errors}
+Instead of checking one line against the rest of the lines in the function (in case of FunctionPass),
+I found that I could use the function class to get all the call sites and compare those directly with each other
+instead, thus drastically reducing the time complexity of the pass.
 
+\begin{lstlisting}[caption={FunctionPass structural overview},label={lst:structure}]
+virtual bool runOnFunction(Function &F) {
+  std::unordered_set<std::string> visited;
 
+  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+    // Get the current method name to be called
+    StringRef funcName = getFunctionName(I);
+
+    if (visited.count(funcName.str()) > 0) {
+      // We already evaluated this function name
+      continue;
+    }
+    visited.insert(funcName.str());
+    int funcLine = getFunctionLine(I);
+
+    // ... snip, method analysis ...
+  }
+}
+\end{lstlisting}
+The pass starts by trying to parse the current instructions function name as shown in the structural overview of the pass shown in listing \ref{lst:structure}.
+This will resolve to \verb!printf!, \verb!add!, \verb!someMethod! etc. in the case of an actual method call,
+while \verb!int b! will resolve to the fallback ``-1".
+It also uses the name of the function being called to avoid analysing it multiple times by caching it to a list of visited methods, \verb!visited!.
+
+The \verb!getFunctionName! method, as shown in listing \ref{lst:getFunctionName}, is an auxiliary made for convenience.
+LLVM is complex and thus, getting the name of the function being called in an instruction is not straight forward.
+
+\begin{lstlisting}[caption={getFunctionName auxiliary method},label={lst:getFunctionName}]
+StringRef get_function_name(CallInst *call)
+{
+    Function *fun = call->getCalledFunction();
+    if (fun) // thanks @Anton Korobeynikov
+        return fun->getName() ; // inherited from llvm::Value
+    else
+        return StringRef("indirect call");
+}
+
+StringRef getFunctionName(inst_iterator it) {
+  CallInst* callInst = dyn_cast<CallInst>(&*it);
+  if (!callInst) {
+    return "-1";
+  }
+  return get_function_name(callInst);
+}
+\end{lstlisting}
+The method analysis is the core of the pass.
+If the name of the function being called was parsed from \verb!getFunctionName!,
+the function name is looked up in the module symbol table.
+It's then possible to iterate a list of uses, which represents instructions that's also using the function.
+If the function name was not able to be parsed i.e. in the case of a declaration, the pass skips to the next instruction in the program being analyzed.
+
+\begin{lstlisting}[caption=Finding similar call sites]
+// If its not a direct call
+if (funcName != "-1") {
+  Module * m = F.getParent();
+  Function * f = m->getFunction(funcName);
+
+  // Get all the uses of this method call (including this one)
+  for (User *U : f->users()) {
+    if (Instruction *Inst = dyn_cast<Instruction>(U)) {
+      int curLine = getFunctionLine(Inst);
+      if (curLine == funcLine) {
+        // This is the same line as we originate from..
+        continue;
+      }
+
+      // Deeper analysis
+    }
+  }
+}
+\end{lstlisting}
 
 \subsubsection*{Comparing instructions}
+Before instructions can be compared and error or warning messages issued,
+a definition of when and what constitutes a (possible) copy-paste error needs to be estabilished.
+
+A Survey on Software Clone Detection Research by Chanchal Kumar Roy and James R. Cordy\footnote{\url{http://research.cs.queensu.ca/TechReports/Reports/2007-541.pdf}} describes 4 types of clones.
+By textual similarity:
+\begin{description}
+\item[Type I] Identical code fragments except for variations in whitespace (may be also variations in layout) and comments.
+\item[Type II] Structurally/syntactically identical fragments except for variations in identifiers, literals, types, layout and comments.
+\item[Type III] Copied fragments with further modifications. Statements can be changed, added or removed in addition to variations in identifiers, literals, types, layout and comments.
+\end{description}
+As well as functional similarity:  If the functionalities of the two code fragments are identical or
+similar i.e., they have similar pre and post conditions, we call them semantic clones and referred as Type IV clones.
+\begin{description}
+\item[Type IV] Two or more code fragments that perform the same computation but implemented through different syntactic variants.
+\end{description}
+These types of clones increases in both level of subtlety and analytical complexity and difficulty in detecting such clones from Type I through Type IV, with Type IV being the highest and most difficult to detect.
+
+By iterating through all call sites for a function and comparing them would effectively find Type I clones.
+The LLVM API has a method \verb!isIdenticalTo! on the \verb!Instruction! class that returns true, if two instructions are exactly the same, as previously mentioned.
+As LLVM ignores whitespace and comments when generating the IR a simple use of \verb!isIdenticalTo! is all that's needed to report identical clones on a line by line basis of the analyzed program.
+I found that the \verb!isSimilarTo! did not work as expected and as such, was replaced by comparing arguments of the \verb!CallSite!s as described later.
+
+Type II clones can be found by inspecting all operands of the instructions being compared when the \verb!isIdenticalTo! check returns false.
+
+\paragraph{Qualifacation of an error}
+When a clone is found, it needs to be determined if it should be reported to the user or not.
+For the purpose of this pass, a simple decision process has been made.
+If two statements are identical, it's reported to the user under the assumption that it's only in very rare cases that one would want identical statements. Using Listing \ref{lst:test1.c} as input, the first error will be;
+\begin{verbatim}
+Identical statements (prinft) found on lines 4 and 5. Did you mean to?
+\end{verbatim}
+
+If the statements are not identical, they should be analyzed further. First, the number of arguments in each instruction should be compared.
+The current implementation does not analyze instructions for which the number of arguments differ -- This is Type III clones (changed statements by adding or removing arguments).
+% !! NOT REALLY IMPLEMENTED !!
+When the arguments are being compared, a counter keeps track of how many of the arguments are the same and how many differs.
+These numbers are used to check if an error or warning should be output to the user.
+If the number of arguments is larger than two while either one argument differs or only one argument is the same, a warning is issued\footnote{Not fully implemented for warnings on string arguments}.
+
+\paragraph{Strings}
+If an argument is of the type \verb!Type::TypeID::ArrayTyID! the string representation of it can be found by the snippet in listing \ref{lst:cstring} given an \verb!Instruction * I! and \verb!int i! being the index of the argument.
+\begin{lstlisting}[caption=Getting method argument as a string,label={lst:cstring}]
+CallSite CSI(cast<Value>(&*I));
+std::string argI = cast<ConstantDataArray>(
+  cast<GlobalVariable>(
+    cast<ConstantExpr>(
+      CSI.getArgument(i)
+    )->getOperand(0)
+  )->getInitializer()
+)->getAsCString();
+\end{lstlisting}
+The type of an argument can be found by \verb!Inst->getOperand(i)->getType()->getTypeID()!.
+
+In the case of a simple \verb!printf! instruction with string arguments,
+it's possible to do a simple check to see if any of the two pair-wise arguments is a substring of the other,
+or if they differ more than that.
+Listing \ref{lst:compString} shows the simplified comparison performed on each argument pair.
+The string comparison of the pass uses a few more checks at the snipping places, in order to give more verbose messages.
+\begin{lstlisting}[caption={Compare string arguments},label={lst:compString}]
+int dist = edit_distance(argI, argInst);
+if (argI == argInst) {
+  // Identical
+} else {
+  if (argI.find(argInst) != std::string::npos) {
+    // argInst is a substring of argI
+    // i.e. something was removed
+    // ... snip ...
+  } else if (argInst.find(argI) != std::string::npos) {
+    // And the other way around
+    // i.e. something was added
+    // ... snip ...
+  } else if (dist < MAX_EDIT_DIST) {
+    // Levenstein distance
+    // ... snip ...
+  }
+}
+\end{lstlisting}
+Using this string comparison, the program from listing \ref{lst:test1.c} would give the more verbose output shown in listing \ref{lst:compStringOut}.
+\begin{lstlisting}[caption={Compare string arguments, verbose output},label={lst:compStringOut}]
+Identical statements (printf) found on lines 4 and 8. Did you mean to?
+On line 7 argument #1 differs from first sight on line 4:
+   'Hello World!' is a substring of 'Hello World!!'.
+ Did you intend to add '!' to the end?
+Identical statements (printf) found on lines 4 and 5. Did you mean to?
+\end{lstlisting}
 
 
+\paragraph{Tokens} A token can either be a variable or an integer\footnote{The pass has only been tested with simple types; integers, string and variables.}.
+At the current state of the implementation, the pass is able to compare tokens if they're either of type \verb!LoadInst! or \verb!ConstantInt!.
+Listing \ref{lst:test2Output} shows the output when the pass is run on the program from listing \ref{lst:test2.c}.
+
+\begin{lstlisting}[caption={test2.c},label={lst:test2.c}]
+#include <stdio.h>
+
+int add(int a, int b, int c)
+{
+  return a+b+c;
+}
+
+int main( )
+{
+  int a = 2;
+  int b = 3;
+  add(a, a, a);
+  add(b, a, a);
+  return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Pass output for test2.c},label={lst:test2Output}]
+On line 13 argument #1 differs from first sight on line 12:
+   b
+ instead of
+   a
+ Is this intended?
+\end{lstlisting}
+If line 13 in listing \ref{lst:test2.c} was changed to ``\verb!add(1, a, a);!", the program would output ``\verb!1 (32 bit int)!" instead of ``\verb!b!" when asking if it was intended.
+If the analysis can't parse the token it's, currently, simply output as IR so the user can decide himself if it's a possible error.
+Using the example from above, replacing the \verb!b! in the \verb!add! method with the arithmic operation \verb!a+b!, yields the error message shown in listing \ref{lst:addError}.
+
+\begin{lstlisting}[caption={Pass output for modified test2.c},label={lst:addError}]
+On line 14 argument #1 differs from first sight on line 13:
+     %9 = add nsw i32 %7, %8, !dbg !26
+ instead of
+   a
+ Is this intended?
+\end{lstlisting}
 
 \section*{Future work}
-I had a few difficulties getting the variable name from a load instruction such that I could compare function arguments in `add(a, a)' vs `add(a, b)'. This section is my thoughts on how I'd extend the pass, had I time.
+% - The future work section should be linked to the description of the pass:
+% what would you want to change/improve? how and why?
+There's a lot of room for improvement in the implementation.
+More advanced types like arithmic operations, other methods as function arguments and pointers are just a few examples.
+The error or warning messages could also be more intelligent and the detection itself could be expanded to cover code blocks or detect copy and paste in modules or even across multiple files.
+
+% In short: you have a rudimentary pass that appear to be working - keep that and focus all your energy in the project on writing a good report and documenting what you actually achieved with the project.
+% Don't sell you efforts short by only writing 8 lines about what you built :-) /Rasmus
+
+This section highlights possible way the current implementation could be extended.
 
 \subsection*{Improving detection}
-Handling arithmic expressions (such as a+b and a*a) could be solved by creating a method that could take a Value as input and convert it to a string representation -- this would make it easier to handle complex cases than the current code.
-That is, to convert `%5 = add nsw i32 %3, %4, !dbg !22` to `a+a` so that the program could make a string comparison for literals.
-Doing so would allow checking complex arguments with nested arithmic operations as well.
+Handling arithmic expressions (such as \verb!a+b! and \verb!a*a!) could be solved by
+refactoring the code that compares two instructions. The Value class (as most, if not all LLVM classes extend this class) could converted to a string representation before running the string comparison code -- this would make it easier to handle complex cases than with the current implementation.
 
-Pseudo code:
+That is, to convert the IR, \verb!%5 = add nsw i32 %3, %4, !dbg !22!, to a string, \verb!a+a!, so that the program could make a string comparison for literals and give more verbose suggestions as shown in listing \ref{lst:compStringOut}.
+Doing so would allow checking complex arguments with nested arithmic operations as well. Pseudo code for such an  algorithm is shown in listing \ref{lst:pseudo}.
 
-\begin{verbatim}
+\begin{lstlisting}[caption=Pseudo code for improving comparison of method arguments, label={lst:pseudo}]
 processExpression(value):
   sequence <- initialize
   visit(sequence, value)
@@ -193,17 +433,29 @@ visit(sequence, value):
     sequence.add(binaryop.opcode)
     visit(sequence, binaryop.operand(1))
     sequence.add(closingParen)
-\end{verbatim}
-
-Adding the opening and closing paranthesis would be needed to distinguish `(b+c-d)*e` from `b+(c-d)*e`.
+\end{lstlisting}
+Adding the opening and closing paranthesis would be needed to distinguish \verb!(b+c-d)*e! from \verb!b+(c-d)*e!.
 
 \subsection*{Detecting blocks}
-Detecting blocks can be done in two ways.
-The first is to introduce some ``lookahead'' functionality to the current pass. That is, to increment both pointers (I and Inst) as long as they're the same and then trigger a message when encountering a line that is just similar or way off.
+Detection of blocks instead of a line by line basis can be done in two ways.
+The first is to introduce some ``lookahead'' functionality to the current pass.
+That is, to increment both pointers (\verb!I! and \verb!Inst!) as long as they're similar enough and then trigger a message when encountering a line that is above a given threshold.
 
 The other way is to encode or serialize parts of the code as a graph and compare graphs to find blocks of duplicate code even though graph isomorphism is a hard problem.
+Detecting blocks can be a very difficult problem, but if done correctly, one could possibly detect Type IV clones.
 
 
 \section*{Conclusion}
+A few difficulties arose when trying to get the variable name from a load instruction such that function arguments in \verb!add(a, a)! vs \verb!add(a, b)! could be compared in a meaninful way.
+Therefore, only a basic copy and pasting detector has been implemented, with a lot of potential for extensibility.
+However, the LLVM API is enourmous and only a small subset of the possible functionality has been used in the implemented pass.
+Given more knowledge of the LLVM API, the pass could be optmized and made more intelligent by leveraging more of the information about the program and its instructions, that the lower level classes of LLVM holds.
+Even though there is plenty of room for extensibility in the pass a rudimentary detector could prove useful.
+
+Side effects of copy and pasting and forgetting or missing to rename variables can lay hidden for a long time before being discovered -- and in worst case, in production enviroment.
+
+How and what to detect and classify as a possible mistake is no small feat either.
+This paper suggests when similar statements could be candidates for a mistake on the programmers part
+and shows how this could be implemented.
 
 \end{document}

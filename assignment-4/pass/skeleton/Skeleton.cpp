@@ -22,8 +22,8 @@
 using namespace llvm;
 
 // http://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
-#include <algorithm> 
-#include <functional> 
+#include <algorithm>
+#include <functional>
 #include <cctype>
 #include <locale>
 
@@ -76,7 +76,7 @@ int hammingDist(std::string const& s1, std::string const& s2)
         char b2 = s2[i];
 
         dif += (b1 != b2)?1:0;
-    }  
+    }
 
     return dif;
 }
@@ -251,9 +251,8 @@ namespace {
 
         int funcLine = getFunctionLine(I);
         // errs() << "Method: " << funcName << " on line " << funcLine << "\n";
- 
+
         // If its not a direct call
-        // A delcaration triggers this as well
         if (funcName != "-1") {
           Module * m = F.getParent();
           Function * f = m->getFunction(funcName);
@@ -279,7 +278,7 @@ namespace {
                 errs() << funcName.str();
                 errs() << ") found on lines " << funcLine << " and " << curLine << ". Did you mean to?\n";
               } else {
-                
+
                 // Inspect arguments
                 // errs() << "Same call: " << curLine << "\n";
 
@@ -297,7 +296,7 @@ namespace {
                 // errs() << "Arguments for Inst: " << numOperInst << "\n";
 
                 // If Inst is @llvm.dbg.declare:
-                // - The first argument is metadata holding the alloca for the variable. 
+                // - The first argument is metadata holding the alloca for the variable.
                 // - The second argument is a local variable containing a description of the variable. http://llvm.org/docs/LangRef.html#dilocalvariable
                 // - The third argument is a complex expression. http://llvm.org/docs/LangRef.html#diexpression
 
@@ -305,7 +304,7 @@ namespace {
                   for (int i = 0; i < numOperInst; ++i) {
                     // errs() << "TYPE: " << I->getOperand(i)->getType()->getTypeID() << "\n";
 
-                    if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::ArrayTyID) {
+                    if (I->getOperand(i)->getType()->getTypeID() == 14) { // Type::TypeID::ArrayTyID
                       // Start "Array" (String) analysis
 
                       std::string argI = cast<ConstantDataArray>(
@@ -342,32 +341,36 @@ namespace {
                         if (argI.find(argInst) != std::string::npos) {
                           // argInst is a substring of argI
                           // i.e. something was removed
-                          errs() << "#00'" << argInst << "' is a substring of '" << argI << "'.\n";
+                          errs() << "On line " + std::to_string(curLine) + " argument #" + std::to_string(i+1) + " differs ";
+                          errs() << "from first sight on line " + std::to_string(funcLine) + ":\n";
+                          errs() << "   '" << argInst << "' is a substring of '" << argI << "'.\n";
                           pos = argI.find(argInst);
                           if (pos == 0) {
-                            errs() << "#1 Did you intend to remove '" << argI.substr(argInst.length(), std::string::npos) << "' from the end?\n";
+                            errs() << " Did you intend to remove '" << argI.substr(argInst.length(), std::string::npos) << "' from the end?\n";
                           } else {
                             if (argInst.length() + pos == argI.length()) {
                               // Only added something in front
-                              errs() << "#2 Did you intend to add '" << argI.substr(0, pos) << "' in the begining?\n";
+                              errs() << " Did you intend to add '" << argI.substr(0, pos) << "' in the begining?\n";
                             } else {
-                              errs() << "#3 Did you intend to add '" << argI.substr(0, pos) << "' in the begining and '";
+                              errs() << " Did you intend to add '" << argI.substr(0, pos) << "' in the begining and '";
                               errs() << argI.substr(pos + argInst.length(), std::string::npos) << "' in the end?\n";
                             }
                           }
                         } else if (argInst.find(argI) != std::string::npos) {
                           // And the other way around
                           // i.e. something was added
-                          errs() << "#01'" << argI << "' is a substring of '" << argInst << "'.\n";
+                          errs() << "On line " + std::to_string(curLine) + " argument #" + std::to_string(i+1) + " differs ";
+                          errs() << "from first sight on line " + std::to_string(funcLine) + ":\n";
+                          errs() << "   '" << argI << "' is a substring of '" << argInst << "'.\n";
                           pos = argInst.find(argI);
                           if (pos == 0) {
-                            errs() << "#4 Did you intend to remove '" << argInst.substr(argI.length(), std::string::npos) << "' from the end?\n";
+                            errs() << " Did you intend to add '" << argInst.substr(argI.length(), std::string::npos) << "' to the end?\n";
                           } else {
                             if (argI.length() + pos == argInst.length()) {
                               // Only added something in front
-                              errs() << "#5 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining?\n";
+                              errs() << " Did you intend to remove '" << argInst.substr(0, pos) << "' from the begining?\n";
                             } else {
-                              errs() << "#6 Did you intend to add '" << argInst.substr(0, pos) << "' in the begining and '";
+                              errs() << " Did you intend to remove '" << argInst.substr(0, pos) << "' from the begining and '";
                               errs() << argInst.substr(pos + argI.length(), std::string::npos) << "' in the end?\n";
                             }
                           }
@@ -379,7 +382,7 @@ namespace {
                           errs() << "   '" << argInst << "'\n";
                           errs() << "Is this intended?";
                         }
-                      } 
+                      }
                     } // End "Array" (Strings) analysis
                     else if (I->getOperand(i)->getType()->getTypeID() == Type::TypeID::MetadataTyID) {
                       // Start "Metadata" (Delclaration?) analysis
@@ -399,7 +402,7 @@ namespace {
                       CallInst* ciInst = dyn_cast<CallInst>(&*Inst);
                       ConstantInt* CI = dyn_cast<llvm::ConstantInt>(&*I->getOperand(i));
 
-                      if (isa<LoadInst>(&*I->getOperand(i)) && isa<LoadInst>(Inst->getOperand(i)) 
+                      if (isa<LoadInst>(&*I->getOperand(i)) && isa<LoadInst>(Inst->getOperand(i))
                             && getVariableName(&*I, i) == getVariableName(Inst, i)) {
                         // Both arguments are simple literals
                         sameArgsCount++;
@@ -446,7 +449,7 @@ namespace {
                         // errs() << *ciI << "\n";
                         // errs() << *ciInst << "\n";
                         // errs() << "ON LINE " << curLine << ", operand " << i << " IS NOT EQUAL\n";
-                        
+
                         // errs() << "TEXT: " << instructionToText(Inst) << "\n";
                       }
                     } // End "Token" (Variables in method calls?) analysis
@@ -475,8 +478,9 @@ namespace {
                 } else {
                   // We're guessing this is intended
                 }
-                
+
                 // Inst->isSameOperationAs.. for a*a?
+                // -- Seems to return the instruction type; load, store, call etc
               }
             }
           }

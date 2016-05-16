@@ -1,6 +1,6 @@
 auto:
 	pdflatex report.tex && \
-	bibtex report && \
+	# bibtex report && \
 	pdflatex report.tex && \
 	pdflatex report.tex
 
